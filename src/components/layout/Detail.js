@@ -694,7 +694,7 @@ function Detail({
 							</Typography>
 						</Box>
 					)}
-					{typeDefinition.sources && typeDefinition.sources.length > 0 && (
+					{typeDefinition?.sources && typeDefinition.sources.length > 0 && (
 						<Box className="detail-sources">
 							<Tooltip title={t("sources-data")}>
 								<Button
@@ -702,7 +702,7 @@ function Detail({
 									color="primary"
 									ref={refSourceBtn}
 									onClick={() => {
-										let ids = typeDefinition.sources.map(
+										let ids = typeDefinition?.sources?.map(
 											(source) => source.source
 										);
 										let scraping_ids = ids
@@ -765,7 +765,7 @@ function Detail({
 												if (sources.length > 0) {
 													completeFromSources(
 														sources,
-														typeDefinition.sources,
+														typeDefinition?.sources,
 														dataToSend,
 														setData,
 														typeDefinition,
@@ -897,7 +897,7 @@ function Detail({
 												<Typography variant="caption" style={{ color: "gray" }}>
 													<Grid
 														layout={group.layout}
-														fields={typeDefinition.fields}
+														fields={typeDefinition?.fields}
 														reference={data.fields}
 														definition={definition}
 														ondemand={ondemand}
