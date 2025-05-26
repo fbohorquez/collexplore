@@ -1,0 +1,747 @@
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+	getFirestore,
+	collection,
+	getDocs,
+	deleteDoc,
+	doc,
+	writeBatch,
+	query,
+	where,
+	limit,
+	Timestamp,
+} from "firebase/firestore";
+import {
+	getStorage,
+	ref as storageRef,
+	uploadBytes,
+	getDownloadURL,
+} from "firebase/storage";
+import db from "./db";
+import Config from "./config";
+
+
+
+
+
+
+async function uploadBlobToStorage(storage, tableName, docId, fieldName, blob, check) {
+	const storageReference = storageRef(
+		storage,
+		`${tableName}/${docId}/${fieldName}`
+	);
+	const uploadTask = async () => {
+		await uploadBytes(storageReference, blob);
+		const url = await getDownloadURL(storageReference);
+		return url;
+	}
+	if (check) {
+		return await getDownloadURL(storageReference).catch(uploadTask);
+	}else{
+		return uploadTask();
+	}
+}
+
+async function processData(storage, data, tableName, docId, check) {
+	const processedData = Array.isArray(data) ? [] : {};
+	for (const key in data) {
+		if (data.hasOwnProperty(key)) {
+			const value = data[key];
+			if (value instanceof Blob) {
+				try {
+					const url = await uploadBlobToStorage(
+						storage,
+						tableName,
+						docId,
+						key,
+						value,
+						check
+					);
+					processedData[key] = url;
+				} catch (error) {
+					console.error(`Error al subir el Blob para el campo ${key}:`, error);
+					processedData[key] = null;
+				}
+			} else if (value instanceof Date) {
+				processedData[key] = value;
+			} else if (typeof value === "object" && value !== null) {
+				let allNull = true;
+				Object.keys(value).forEach((key) => {
+					if (key === "") {
+						delete value[key];
+					} else {
+						allNull = false;
+					}
+				});
+				if (allNull) {
+					processedData[key] = null;
+				}
+				processedData[key] = await processData(
+					storage,
+					value,
+					tableName,
+					docId,
+					check
+				);
+			} else if (typeof value === "undefined") {
+				delete processedData[key];
+			} else {
+				processedData[key] = value;
+			}
+		}
+	}
+	processedData.updatedAt = new Date();
+	return processedData;
+}
+
+async function downloadStorageToBlob(url) {
+	const blob = await fetch(url).then((response) => response.blob());
+	return blob;
+}
+
+async function processDownloadedData(docData) {
+	const processedData = Array.isArray(docData) ? [] : {};
+	for (const key in docData) {
+		if (docData.hasOwnProperty(key)) {
+			const value = docData[key];
+			if (value && typeof value === "string" && value.startsWith("https://")) {
+				try {
+					const blob = await downloadStorageToBlob(value);
+					processedData[key] = blob;
+				} catch (error) {
+					console.error(
+						`Error al descargar el Blob para el campo ${key}:`,
+						error
+					);
+					processedData[key] = null;
+				}
+			} else if (value instanceof Date) {
+				processedData[key] = value;
+			} else if (typeof value === "object" && value !== null) {
+				processedData[key] = await processDownloadedData(value);
+			} else {
+				processedData[key] = value;
+			}
+		}
+	}
+	processedData.downloaded = true;
+	return processedData;
+}
+
+class FirestoreManager {
+	constructor() {
+		return;
+		if (!Config.getFromCache("firestore_api_key")) {
+			return;
+		}
+		this.firebaseConfig = {
+			apiKey: Config.getFromCache("firestore_api_key"),
+			authDomain: Config.getFromCache("firestore_auth_domain"),
+			databaseURL: Config.getFromCache("firestore_database_url"),
+			projectId: Config.getFromCache("firestore_project_id"),
+			storageBucket: Config.getFromCache("firestore_storage_bucket"),
+			messagingSenderId: Config.getFromCache("firestore_messaging_sender_id"),
+			appId: Config.getFromCache("firestore_app_id"),
+		};
+
+		if (!getApps().length) {
+			this.app = initializeApp(this.firebaseConfig);
+		} else {
+			this.app = getApp();
+		}
+
+		this.firestore = getFirestore(this.app);
+		this.storage = getStorage(this.app);
+
+		this.batch = writeBatch(this.firestore);
+		this.batchOperationCount = 0;
+		this.batchMaxOperations = 500;
+		this.batchTimeout = 0.5 * 60 * 1000;
+		this.batchTimer = null;
+	}
+
+	async checkData() {
+		const tableNames = db.tables.map((table) => table.name);
+
+		if (tableNames.length === 0) {
+			console.log("No hay tablas en IndexedDB");
+			return false;
+		}
+
+		const firstTableName = tableNames[0];
+		const collectionRef = collection(this.firestore, firstTableName);
+
+		try {
+			const q = query(collectionRef, limit(1));
+			const snapshot = await getDocs(q);
+			if (snapshot.empty) {
+				console.log(`La colección ${firstTableName} no existe en Firestore`);
+				return false;
+			} else {
+				console.log(`La colección ${firstTableName} existe en Firestore`);
+				return true;
+			}
+		} catch (error) {
+			console.error("Error al comprobar la colección en Firestore:", error);
+			return false;
+		}
+	}
+
+	async exportTables() {
+		const tableNames = db.tables.map((table) => table.name);
+
+		for (const tableName of tableNames) {
+			if (!FirestoreManager.allowUpdate({}, tableName)) {
+				continue;
+			}
+			const table = db.table(tableName);
+			const data = await table.toArray();
+
+			const batchLimit = 10;
+
+			let pages = [];
+			for (let i = 0; i < data.length; i += batchLimit) {
+				pages.push(data.slice(i, i + batchLimit));
+			}
+
+			for (const page of pages) {
+				const batch = writeBatch(this.firestore);
+				for (const docData of page) {
+					const processedDocData = JSON.parse(
+						JSON.stringify(
+							await processData(
+								this.storage,
+								docData,
+								tableName,
+								docData.id,
+								true
+							)
+						)
+					);
+					let id = docData.id;
+					if (!id && docData.key) {
+						id = docData.key;
+					}
+					if (!id && docData.name) {
+						id = docData.name;
+					}
+					if (!id && db.table(tableName).schema.primKey.auto) {
+						id = batch._opCount.toString();
+					}
+					if (id && id.toString) {
+						id = id.toString();
+					}
+					processedDocData.updatedAt = new Date();
+					const docRef = doc(this.firestore, tableName, id);
+					console.log("processedDocData", processedDocData);
+					batch.set(docRef, processedDocData);
+				}
+				db.config.put({ key: "lastSyncTime", value: Date.now() });
+
+				try {
+					await batch.commit();
+					console.log(`Tabla ${tableName} exportada a Firestore con éxito`);
+				} catch (error) {
+					console.error(
+						`Error al exportar la tabla ${tableName} a Firestore:`,
+						error
+					);
+				}
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+			}
+		}
+	}
+
+	async synchronize() {
+		return;
+		if (!Config.getFromCache("module_firestore")) {
+			return;
+		}
+		const tableNames = db.tables.map((table) => table.name);
+
+		const lastSyncConfig = await db.config.get("lastSyncTime");
+		const lastSyncTime = lastSyncConfig ? lastSyncConfig.value : 0;
+		const lastSyncTimestamp =
+			lastSyncConfig && lastSyncConfig.value
+				? Timestamp.fromMillis(lastSyncConfig.value)
+				: Timestamp.fromMillis(0);
+
+		const newSyncTime = Date.now();
+
+		for (const tableName of tableNames) {
+			const collectionRef = collection(this.firestore, tableName);
+			const q = query(
+				collectionRef,
+				where("updatedAt", ">", lastSyncTimestamp)
+			);
+
+			try {
+				const snapshot = await getDocs(q);
+				const docs = snapshot.docs.map((doc) => ({
+					id: doc.id,
+					...doc.data(),
+				}));
+
+				if (docs.length > 0) {
+					await db.transaction("rw", db.table(tableName), async () => {
+						for (const docData of docs) {
+							const processedDocData = await processDownloadedData(docData);
+							if (processedDocData.deleted) {
+								await db.table(tableName).delete(docData.id);
+							} else {
+								await db.table(tableName).put(processedDocData);
+							}
+						}
+					});
+					console.log(
+						`Tabla ${tableName} sincronizada con ${docs.length} cambios`
+					);
+				}
+			} catch (error) {
+				console.error(`Error al sincronizar la tabla ${tableName}:`, error);
+			}
+		}
+
+		await db.config.put({ key: "lastSyncTime", value: newSyncTime });
+	}
+
+	async checkUpdatedAtInFirestore() {
+		const tableNames = db.tables.map((table) => table.name);
+		const collectionsWithoutUpdatedAt = [];
+
+		for (const tableName of tableNames) {
+			const collectionRef = collection(this.firestore, tableName);
+			const q = query(collectionRef, limit(1));
+			const snapshot = await getDocs(q);
+
+			if (!snapshot.empty) {
+				const docData = snapshot.docs[0].data();
+				if (!docData.hasOwnProperty("updatedAt")) {
+					collectionsWithoutUpdatedAt.push(tableName);
+				}
+			} else {
+				// Si la colección está vacía, asumimos que necesita el campo
+				collectionsWithoutUpdatedAt.push(tableName);
+			}
+		}
+
+		return collectionsWithoutUpdatedAt;
+	}
+
+	async checkUpdatedAtInIndexedDB() {
+		const tableNames = db.tables.map((table) => table.name);
+		const tablesWithoutUpdatedAt = [];
+
+		for (const tableName of tableNames) {
+			const table = db.table(tableName);
+			const firstItem = await table.limit(1).first();
+
+			if (firstItem && !firstItem.hasOwnProperty("updatedAt")) {
+				tablesWithoutUpdatedAt.push(tableName);
+			} else if (!firstItem) {
+				// Si la tabla está vacía, asumimos que necesita el campo
+				tablesWithoutUpdatedAt.push(tableName);
+			}
+		}
+
+		return tablesWithoutUpdatedAt;
+	}
+
+	async addUpdatedAtFirestore(collectionNames) {
+		for (const collectionName of collectionNames) {
+			const collectionRef = collection(this.firestore, collectionName);
+			const snapshot = await getDocs(collectionRef);
+
+			const batchLimit = 500; // Límite de operaciones por batch en Firestore
+			let batch = writeBatch(this.firestore);
+			let operationCount = 0;
+
+			for (const doc of snapshot.docs) {
+				const docRef = doc.ref;
+				const data = doc.data();
+
+				// Agregar updatedAt si no existe
+				if (!data.hasOwnProperty("updatedAt")) {
+					batch.update(docRef, { updatedAt: new Date() });
+					operationCount++;
+
+					if (operationCount === batchLimit) {
+						await batch.commit();
+						batch = writeBatch(this.firestore);
+						operationCount = 0;
+					}
+				}
+			}
+
+			if (operationCount > 0) {
+				await batch.commit();
+			}
+
+			console.log(
+				`Campo updatedAt agregado a la colección ${collectionName} en Firestore`
+			);
+		}
+	}
+
+	async addUpdatedAtLocal(tableNames) {
+		for (const tableName of tableNames) {
+			const table = db.table(tableName);
+
+			await table.toCollection().modify((item) => {
+				if (!item.hasOwnProperty("updatedAt")) {
+					item.updatedAt = new Date();
+				}
+			});
+
+			console.log(
+				`Campo updatedAt agregado a la tabla ${tableName} en IndexedDB`
+			);
+		}
+	}
+
+	async addUpdatedAtBoth(collectionNames) {
+		const timestamp = new Date();
+
+		// Agregar updatedAt en Firestore
+		for (const collectionName of collectionNames) {
+			const collectionRef = collection(this.firestore, collectionName);
+			const snapshot = await getDocs(collectionRef);
+
+			const batchLimit = 500;
+			let batch = writeBatch(this.firestore);
+			let operationCount = 0;
+
+			for (const doc of snapshot.docs) {
+				const docRef = doc.ref;
+
+				batch.update(docRef, { updatedAt: timestamp });
+				operationCount++;
+
+				if (operationCount === batchLimit) {
+					await batch.commit();
+					batch = writeBatch(this.firestore);
+					operationCount = 0;
+				}
+			}
+
+			if (operationCount > 0) {
+				await batch.commit();
+			}
+
+			console.log(
+				`Campo updatedAt agregado a la colección ${collectionName} en Firestore`
+			);
+		}
+
+		// Agregar updatedAt en IndexedDB
+		for (const tableName of collectionNames) {
+			const table = db.table(tableName);
+
+			await table.toCollection().modify((item) => {
+				item.updatedAt = timestamp;
+			});
+
+			console.log(
+				`Campo updatedAt agregado a la tabla ${tableName} en IndexedDB`
+			);
+		}
+	}
+
+	async addFields() {
+		const collectionsWithoutUpdatedAtInFirestore =
+			await this.checkUpdatedAtInFirestore();
+		const tablesWithoutUpdatedAtInIndexedDB =
+			await this.checkUpdatedAtInIndexedDB();
+
+		const collectionsNeedUpdateInFirestore = [
+			...collectionsWithoutUpdatedAtInFirestore,
+		];
+		const tablesNeedUpdateInIndexedDB = [...tablesWithoutUpdatedAtInIndexedDB];
+
+		const collectionsWithoutUpdatedAtInBoth =
+			collectionsWithoutUpdatedAtInFirestore.filter((name) =>
+				tablesWithoutUpdatedAtInIndexedDB.includes(name)
+			);
+
+		for (const name of collectionsWithoutUpdatedAtInBoth) {
+			const indexInFirestore = collectionsNeedUpdateInFirestore.indexOf(name);
+			if (indexInFirestore > -1) {
+				collectionsNeedUpdateInFirestore.splice(indexInFirestore, 1);
+			}
+
+			const indexInIndexedDB = tablesNeedUpdateInIndexedDB.indexOf(name);
+			if (indexInIndexedDB > -1) {
+				tablesNeedUpdateInIndexedDB.splice(indexInIndexedDB, 1);
+			}
+		}
+
+		if (collectionsWithoutUpdatedAtInBoth.length > 0) {
+			await this.addUpdatedAtBoth(collectionsWithoutUpdatedAtInBoth);
+		}
+
+		if (collectionsNeedUpdateInFirestore.length > 0) {
+			await this.addUpdatedAtFirestore(collectionsNeedUpdateInFirestore);
+		}
+
+		if (tablesNeedUpdateInIndexedDB.length > 0) {
+			await this.addUpdatedAtLocal(tablesNeedUpdateInIndexedDB);
+		}
+	}
+
+	dbSuscribe() {
+		if (!Config.getFromCache("module_firestore")) {
+			return;
+		}
+		db.tables.forEach((table) => {
+			table.hook("creating", function (primKey, obj, transaction) {
+				obj.updatedAt = new Date();
+				if (obj.downloaded) {
+					delete obj.downloaded;
+					return;
+				}
+
+				obj.tempId = "temp_" + Math.random().toString(36).substr(2, 9);
+
+				setTimeout(async () => {
+					let localObj = await db
+						.table(table.name)
+						.where("tempId")
+						.equals(obj.tempId)
+						.first();
+					if (localObj) {
+						delete localObj.tempId;
+						await db.table(table.name).put(localObj);
+						FirestoreManager.handleLocalChange(table.name, "create", localObj);
+					}
+				}, 500);
+			});
+
+			table.hook(
+				"updating",
+				function (modifications, primKey, obj, transaction) {
+					if (!FirestoreManager.allowUpdate(obj, table.name, modifications)) {
+						return;
+					}
+					if (modifications.downloaded) {
+						delete modifications.downloaded;
+						return;
+					}
+					modifications.updatedAt = new Date();
+
+					const updatedObj = JSON.parse(JSON.stringify(obj));
+					FirestoreManager.applyModifications(updatedObj, modifications);
+					delete updatedObj.downloaded;
+					FirestoreManager.handleLocalChange(table.name, "update", updatedObj);
+				}
+			);
+
+			table.hook("deleting", function (primKey, obj, transaction) {
+				let deletedObj = JSON.parse(JSON.stringify(obj));
+				deletedObj.updatedAt = new Date();
+				deletedObj.deleted = true;
+				FirestoreManager.handleLocalChange(table.name, "update", deletedObj);
+			});
+		});
+		window.addEventListener("beforeunload", async (event) => {
+			if (this.batchOperationCount > 0) {
+				await this.commitBatch();
+			}
+		});
+
+		document.addEventListener("visibilitychange", async () => {
+			if (document.hidden && this.batchOperationCount > 0) {
+				await this.commitBatch();
+			}
+		});
+	}
+
+	static allowUpdate(obj, table, modifications) {
+		if (table === "config") {
+			return false;
+		}
+		if (obj.key === "lastSyncTime") {
+			return false;
+		}
+		return true;
+	}
+
+	static applyModifications(obj, modifications) {
+		for (const key in modifications) {
+			if (modifications.hasOwnProperty(key)) {
+				const value = modifications[key];
+				const path = key.split(".");
+				let target = obj;
+
+				for (let i = 0; i < path.length - 1; i++) {
+					const p = path[i];
+					if (!(p in target)) {
+						target[p] = {};
+					}
+					target = target[p];
+				}
+
+				target[path[path.length - 1]] = value;
+			}
+		}
+	}
+
+	static async handleLocalChange(tableName, changeType, data) {
+		// Crear una instancia de FirestoreManager si es necesario
+		if (!this.instance) {
+			this.instance = new FirestoreManager();
+		}
+		const manager = this.instance;
+		let id = data.id;
+		if (!id && data.key) {
+			id = data.key;
+		}
+		if (!id && data.name) {
+			id = data.name;
+		}
+		if (!id && db.table(tableName).schema.primKey.auto) {
+			id = "temp";
+		}
+		if (id && id.toString) {
+			id = id.toString();
+		}
+
+		const docRef = doc(manager.firestore, tableName, id);
+
+		try {
+			if (changeType === "create" || changeType === "update") {
+				// Asegurarse de que updatedAt es un Timestamp
+				data.updatedAt = new Date();
+
+				// Procesar datos si es necesario (e.g., blobs)
+				const processedData = await processData(
+					manager.storage,
+					data,
+					tableName,
+					data.id
+				);
+
+				// Usar set con { merge: true } para crear o actualizar
+				await manager.batchUpdate(docRef, processedData);
+			} else if (changeType === "delete") {
+				await deleteDoc(docRef);
+			}
+			console.log(
+				`Cambio local en tabla ${tableName} sincronizado con Firestore`
+			);
+		} catch (error) {
+			console.error(
+				`Error al sincronizar cambio local en tabla ${tableName}:`,
+				error
+			);
+		}
+	}
+
+	async batchUpdate(docRef, data) {
+		// Agregar la operación set al batch
+		this.batch.set(docRef, data, { merge: true });
+		this.batchOperationCount++;
+
+		if (this.batchOperationCount >= this.batchMaxOperations) {
+			// Hacer commit del batch inmediatamente
+			await this.commitBatch();
+		} else {
+			// Iniciar o reiniciar el temporizador
+			this.resetBatchTimer();
+		}
+	}
+
+	async batchDelete(docRef) {
+		this.batch.delete(docRef);
+		this.batchOperationCount++;
+
+		if (this.batchOperationCount >= this.batchMaxOperations) {
+			await this.commitBatch();
+		} else {
+			this.resetBatchTimer();
+		}
+	}
+
+	async commitBatch() {
+		if (this.batchOperationCount > 0) {
+			try {
+				await this.batch.commit();
+				console.log(
+					`Batch de ${this.batchOperationCount} operaciones commitadas en Firestore`
+				);
+			} catch (error) {
+				console.error(`Error al commitear el batch en Firestore:`, error);
+			} finally {
+				// Resetear el batch y el conteo de operaciones
+				this.batch = writeBatch(this.firestore);
+				this.batchOperationCount = 0;
+				// Limpiar el temporizador
+				this.clearBatchTimer();
+			}
+		} else {
+			// No hay operaciones para commitear; limpiar el temporizador si está configurado
+			this.clearBatchTimer();
+		}
+	}
+
+	resetBatchTimer() {
+		// Limpiar el temporizador existente si existe
+		if (this.batchTimer) {
+			clearTimeout(this.batchTimer);
+		}
+		// Iniciar un nuevo temporizador
+		this.batchTimer = setTimeout(() => {
+			this.commitBatch();
+		}, this.batchTimeout);
+	}
+
+	clearBatchTimer() {
+		if (this.batchTimer) {
+			clearTimeout(this.batchTimer);
+			this.batchTimer = null;
+		}
+	}
+
+	init() {
+		this.dbSuscribe();
+	}
+}
+
+export default FirestoreManager;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

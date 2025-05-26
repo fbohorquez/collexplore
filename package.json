@@ -1,0 +1,87 @@
+{
+  "name": "my-collection-manager",
+  "version": "0.1.0",
+  "private": true,
+  "proxy": "https://boardgamegeek.com",
+  "dependencies": {
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.5",
+    "@monaco-editor/react": "^4.6.0",
+    "@mui/icons-material": "^5.15.15",
+    "@mui/material": "^5.15.15",
+    "@mui/x-date-pickers": "^5.0.0",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
+    "axios": "^1.7.2",
+    "chroma-js": "^3.1.2",
+    "date-fns": "^2.30.0",
+    "dexie": "^4.0.4",
+    "dexie-export-import": "^4.1.2",
+    "fast-xml-parser": "^4.4.0",
+    "file-saver": "^2.0.5",
+    "firebase": "^10.14.1",
+    "flexsearch": "^0.7.43",
+    "fuse.js": "^7.0.0",
+    "gapi-script": "^1.2.0",
+    "i18next": "^23.11.2",
+    "i18next-browser-languagedetector": "^7.2.1",
+    "immutability-helper": "^3.1.1",
+    "js-cookie": "^3.0.5",
+    "json2csv": "^6.0.0-alpha.2",
+    "jszip": "^3.10.1",
+    "opencv.js": "^1.2.1",
+    "os-browserify": "^0.3.0",
+    "papaparse": "^5.4.1",
+    "pouchdb": "^9.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^18.2.0",
+    "react-beautiful-dnd": "^13.1.1",
+    "react-color": "^2.19.3",
+    "react-confirm-alert": "^3.0.6",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
+    "react-dom": "^18.2.0",
+    "react-google-charts": "^5.2.1",
+    "react-grid-layout": "^1.4.4",
+    "react-i18next": "^14.1.0",
+    "react-quill": "^2.0.0",
+    "react-scripts": "5.0.1",
+    "react-slick": "^0.30.2",
+    "react-slideshow-image": "^4.3.1",
+    "react-sortablejs": "^6.1.4",
+    "react-virtuoso": "^4.7.10",
+    "sortablejs": "^1.15.2",
+    "stream-browserify": "^3.0.0",
+    "string-similarity": "^4.0.4",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@welldone-software/why-did-you-render": "^8.0.3"
+  }
+}
