@@ -522,16 +522,18 @@ function Detail({
 					event.preventDefault();
 					setTabValue((prev) => {
 						const newValue = prev - 1;
+						const tabsLength = typeDefinition?.tabs?.length || 1;
 						newTabValue =
-							newValue >= 0 ? newValue : typeDefinition.tabs.length - 1;
-						return newValue >= 0 ? newValue : typeDefinition.tabs.length - 1;
+							newValue >= 0 ? newValue : tabsLength - 1;
+						return newValue >= 0 ? newValue : tabsLength - 1;
 					});
 				} else if (event.key === "ArrowRight") {
 					event.preventDefault();
 					setTabValue((prev) => {
 						const newValue = prev + 1;
-						newTabValue = newValue < typeDefinition.tabs.length ? newValue : 0;
-						return newValue < typeDefinition.tabs.length ? newValue : 0;
+						const tabsLength = typeDefinition?.tabs?.length || 1;
+						newTabValue = newValue < tabsLength ? newValue : 0;
+						return newValue < tabsLength ? newValue : 0;
 					});
 				}
 				let id = `simple-tabpanel-${newTabValue}`;
@@ -549,7 +551,7 @@ function Detail({
 		return () => {
 			window.removeEventListener("keyup", handleKeyDown);
 		};
-	}, [typeDefinition.tabs.length, tabValue]);
+	}, [typeDefinition?.tabs?.length || 0, tabValue]);
 
 	
 
