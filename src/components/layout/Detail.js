@@ -790,12 +790,12 @@ function Detail({
 						scrollButtons="auto"
 						style={{
 							display:
-								typeDefinition.tabs && typeDefinition.tabs.length > 1
+								typeDefinition?.tabs && typeDefinition.tabs.length > 1
 									? "flex"
 									: "none",
 						}}
 					>
-						{typeDefinition.tabs &&
+						{typeDefinition?.tabs &&
 							typeDefinition.tabs
 								.filter((tab) => {
 									if (!tab.visible) {
@@ -852,7 +852,7 @@ function Detail({
 									);
 								})}
 					</Tabs>
-					{typeDefinition.tabs &&
+					{typeDefinition?.tabs &&
 						typeDefinition.tabs
 							.filter((tab) => {
 								if (!tab.visible) {
