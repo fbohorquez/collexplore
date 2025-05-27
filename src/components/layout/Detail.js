@@ -522,16 +522,18 @@ function Detail({
 					event.preventDefault();
 					setTabValue((prev) => {
 						const newValue = prev - 1;
+						const tabsLength = typeDefinition?.tabs?.length || 1;
 						newTabValue =
-							newValue >= 0 ? newValue : typeDefinition.tabs.length - 1;
-						return newValue >= 0 ? newValue : typeDefinition.tabs.length - 1;
+							newValue >= 0 ? newValue : tabsLength - 1;
+						return newValue >= 0 ? newValue : tabsLength - 1;
 					});
 				} else if (event.key === "ArrowRight") {
 					event.preventDefault();
 					setTabValue((prev) => {
 						const newValue = prev + 1;
-						newTabValue = newValue < typeDefinition.tabs.length ? newValue : 0;
-						return newValue < typeDefinition.tabs.length ? newValue : 0;
+						const tabsLength = typeDefinition?.tabs?.length || 1;
+						newTabValue = newValue < tabsLength ? newValue : 0;
+						return newValue < tabsLength ? newValue : 0;
 					});
 				}
 				let id = `simple-tabpanel-${newTabValue}`;
@@ -549,7 +551,7 @@ function Detail({
 		return () => {
 			window.removeEventListener("keyup", handleKeyDown);
 		};
-	}, [typeDefinition.tabs.length, tabValue]);
+	}, [typeDefinition?.tabs?.length || 0, tabValue]);
 
 	
 
@@ -692,7 +694,7 @@ function Detail({
 							</Typography>
 						</Box>
 					)}
-					{typeDefinition.sources && typeDefinition.sources.length > 0 && (
+					{typeDefinition?.sources && typeDefinition.sources.length > 0 && (
 						<Box className="detail-sources">
 							<Tooltip title={t("sources-data")}>
 								<Button
@@ -700,7 +702,7 @@ function Detail({
 									color="primary"
 									ref={refSourceBtn}
 									onClick={() => {
-										let ids = typeDefinition.sources.map(
+										let ids = typeDefinition?.sources?.map(
 											(source) => source.source
 										);
 										let scraping_ids = ids
@@ -763,7 +765,7 @@ function Detail({
 												if (sources.length > 0) {
 													completeFromSources(
 														sources,
-														typeDefinition.sources,
+														typeDefinition?.sources,
 														dataToSend,
 														setData,
 														typeDefinition,
@@ -788,12 +790,12 @@ function Detail({
 						scrollButtons="auto"
 						style={{
 							display:
-								typeDefinition.tabs && typeDefinition.tabs.length > 1
+								typeDefinition?.tabs && typeDefinition.tabs.length > 1
 									? "flex"
 									: "none",
 						}}
 					>
-						{typeDefinition.tabs &&
+						{typeDefinition?.tabs &&
 							typeDefinition.tabs
 								.filter((tab) => {
 									if (!tab.visible) {
@@ -850,7 +852,7 @@ function Detail({
 									);
 								})}
 					</Tabs>
-					{typeDefinition.tabs &&
+					{typeDefinition?.tabs &&
 						typeDefinition.tabs
 							.filter((tab) => {
 								if (!tab.visible) {
@@ -895,7 +897,7 @@ function Detail({
 												<Typography variant="caption" style={{ color: "gray" }}>
 													<Grid
 														layout={group.layout}
-														fields={typeDefinition.fields}
+														fields={typeDefinition?.fields}
 														reference={data.fields}
 														definition={definition}
 														ondemand={ondemand}
