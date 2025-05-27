@@ -17,7 +17,7 @@ const getBaseTypes = (component, type) => {
   if (component === "lists") {
     return getBaseListsTypes(type);
   }
-  if (component === "items" || component === "lists-items") {
+  if (component === "items" || component === "lists-items" || component === "null-tmp") {
 		return getBaseItemsTypes(type, component);
 	}
 }
